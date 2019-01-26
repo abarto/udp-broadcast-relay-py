@@ -1,4 +1,22 @@
-from __future__ import print_function
+"""
+udp_broadcast_replay
+
+This scripts listens on a specific port for UDP packets sent by the
+udp_broadcast_forward.py script and "replays" the forwarded packet
+constructing an Ethernet frame with the headers and payload of the original
+packet.
+
+Usage: udp_broadcast_replay.py <bind_ip>:<bind_port> <interface>
+
+* bind_ip: The IP address to bind to.
+* bind_port: The IP port to listen for forwarded UDP packets.
+* interface: The name of the interfce onto which the replayed packets are
+  going to be written to.
+
+Copyright (c) 2019 Agustin Barto <abarto@gmail.com>
+"""
+
+from __future__ import absolute_import, print_function
 
 import array
 import socket
@@ -6,11 +24,14 @@ import struct
 import sys
 
 
-def _to_hex(data):
-    return r''.join(r'\x{:02x}'.format(b if isinstance(b, int) else ord(b)) for b in data)
+__author__ = 'Agustin Barto'
+__copyright__ = 'Copyright (C) 2019 Agustin Barto'
+__license__ = 'MIT License'
+__version__ = '0.1'
 
 
 def _checksum(buf):
+    """Computes a checksum using 16-bit one's complement"""
     n = len(buf)
     a = array.array("H", buf[:n & (~0x1)])
 
@@ -25,6 +46,8 @@ def _checksum(buf):
 
 
 def _eth(dst, src, ip_src_addr, ip_dest_addr, src_port, dest_port, data):
+    """Builds an Ethernet frame with and IP packet as payload"""
+
     ip_packet = _ip(ip_src_addr, ip_dest_addr, src_port, dest_port, data)
 
     packet = (
@@ -38,6 +61,8 @@ def _eth(dst, src, ip_src_addr, ip_dest_addr, src_port, dest_port, data):
 
 
 def _ip(src_addr, dest_addr, src_port, dest_port, data):
+    """Builds an IP packet with a UDP packet as payload"""
+
     udp_packet = _udp(src_addr, dest_addr, src_port, dest_port, data)
 
     header = (
@@ -66,6 +91,8 @@ def _ip(src_addr, dest_addr, src_port, dest_port, data):
 
 
 def _udp(src_addr, dest_addr, src_port, dest_port, data):
+    """Builds a UDP packet"""
+
     packet = (
         struct.pack('!H', src_port) +     # sport
         struct.pack('!H', dest_port) +    # dport
@@ -95,7 +122,8 @@ def main():
 
     bind_ip, bind_port = args_bind.split(':', 1)
 
-    print('{}: bind_ip = {}, bind_port = {}, interface = {}'.format(sys.argv[0], bind_ip, bind_port, args_interface))
+    print('{}: bind_ip = {}, bind_port = {}, interface = {}'.format(
+        sys.argv[0], bind_ip, bind_port, args_interface))
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_socket.bind(socket.getaddrinfo(bind_ip, int(bind_port), 0)[0][-1])
@@ -109,7 +137,8 @@ def main():
 
         print('{}: recvfrom, data = {!r}, forward_address = {}'.format(sys.argv[0], data, forward_address))
 
-        src_address_bin, src_port, dest_address_bin, dest_port, forwarded_data = struct.unpack('!4sH4sH{}s'.format(len(data) - 12), data)
+        src_address_bin, src_port, dest_address_bin, dest_port, forwarded_data = struct.unpack('!4sH4sH{}s'.format(
+            len(data) - 12), data)
 
         payload = _eth(
             b'\xff\xff\xff\xff\xff\xff',  # FF:FF:FF:FF:FF:FF
