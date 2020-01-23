@@ -130,8 +130,7 @@ def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_socket.bind(socket.getaddrinfo(bind_ip, int(bind_port), 0)[0][-1])
 
-    raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-    raw_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+    raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.IPPROTO_RAW)
     raw_socket.bind((args_interface, 0))
   
     while True:
