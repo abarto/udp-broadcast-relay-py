@@ -14,7 +14,7 @@ Usage: udp_broadcast_forward.py <port> <dest_ip>:<dest_port> [<bind>]
 * dest_port: IP port on which  udp_broadcast_replay is listening.
 * bind: IP address to bind to (Optional. Default: 255.255.255.255).
 
-Copyright (c) 2019 Agustin Barto <abarto@gmail.com>
+Copyright (c) 2020 Agustin Barto <abarto@gmail.com>
 """
 
 from __future__ import absolute_import, print_function

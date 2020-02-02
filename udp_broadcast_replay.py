@@ -21,6 +21,7 @@ Copyright (c) 2019 Agustin Barto <abarto@gmail.com>
 from __future__ import absolute_import, print_function
 
 import array
+import fcntl
 import socket
 import struct
 import sys
@@ -34,6 +35,7 @@ __version__ = '0.1'
 
 def _checksum(buf):
     """Computes a checksum using 16-bit one's complement"""
+    
     n = len(buf)
     a = array.array("H", buf[:n & (~0x1)])
 
@@ -47,37 +49,20 @@ def _checksum(buf):
     return socket.ntohs((~s) & 0xFFFF)
 
 
-def _eth(dst, src, ip_src_addr, ip_dest_addr, src_port, dest_port, data):
-    """Builds an Ethernet frame with and IP packet as payload"""
-
-    ip_packet = _ip(ip_src_addr, ip_dest_addr, src_port, dest_port, data)
-
-    packet = (
-        dst +        # dst
-        src +        # src
-        b'' +        # vlan
-        b'\x08\x00'  # type
-    ) + ip_packet
-
-    return packet
-
-
 def _ip(src_addr, dest_addr, src_port, dest_port, data):
     """Builds an IP packet with a UDP packet as payload"""
 
-    udp_packet = _udp(src_addr, dest_addr, src_port, dest_port, data)
-
     header = (
-        b'\x45' +                                 # v_hl
-        b'\x00' +                                 # tos
-        struct.pack('H', 20 + len(udp_packet)) +  # len
-        b'\x00\x00' +                             # id
-        b'\x00\x00' +                             # off
-        b'\x40' +                                 # ttl
-        b'\x11' +                                 # p
-        struct.pack('!H', 0) +                    # sum
-        src_addr +                                # src
-        dest_addr                                 # dst
+        b'\x45' +                                  # v_hl
+        b'\x00' +                                  # tos
+        struct.pack('!H', 20 + len(udp_packet)) +  # len
+        b'\x00\x00' +                              # id
+        b'\x00\x00' +                              # off
+        b'\x40' +                                  # ttl
+        b'\x11' +                                  # p (UDP)
+        struct.pack('!H', 0) +                     # sum
+        src_addr +                                 # src
+        dest_addr                                  # dst
     )
 
     sum_ = _checksum(header)
@@ -86,7 +71,7 @@ def _ip(src_addr, dest_addr, src_port, dest_port, data):
         struct.pack('!H', sum_) + # sum
         src_addr +                # src
         dest_addr +               # dst
-        udp_packet                # data
+        data                      # data
     )
 
     return packet
@@ -115,6 +100,16 @@ def _udp(src_addr, dest_addr, src_port, dest_port, data):
     return packet
 
 
+def _get_ip_address(interface):
+    """Returns the IP address of a network inerface"""
+    
+    probe_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    return socket.inet_ntoa(
+        fcntl.ioctl(probe_socket.fileno(),
+        0x8915,  # SIOCGIFADDR
+        struct.pack('256s', interface[:15].encode('utf-8')))[20:24])
+
+
 def main():
     if len(sys.argv) < 2:
         print('Usage: {} <bind_ip>:<bind_port> <interface>'.format(sys.argv[0]), file=sys.stderr)
@@ -130,8 +125,10 @@ def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_socket.bind(socket.getaddrinfo(bind_ip, int(bind_port), 0)[0][-1])
 
-    raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-    raw_socket.bind((args_interface, 0))
+    raw_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+    raw_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+    raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    raw_socket.bind((_get_ip_address(args_interface), 0))
   
     while True:
         data, forward_address = server_socket.recvfrom(1024)
@@ -141,16 +138,10 @@ def main():
         src_address_bin, src_port, dest_address_bin, dest_port, forwarded_data = struct.unpack('!4sH4sH{}s'.format(
             len(data) - 12), data)
 
-        payload = _eth(
-            b'\xff\xff\xff\xff\xff\xff',  # FF:FF:FF:FF:FF:FF
-            b'\x0a\x0b\x0c\x01\x02\x03',  # 0A:0B:0C:01:02:03
-            src_address_bin,
-            dest_address_bin,
-            src_port,
-            dest_port,
-            forwarded_data)
+        udp_packet = _udp(src_address_bin, dest_address_bin, src_port, dest_port, data)
+        ip_packet = _ip(src_address_bin, dest_address_bin, src_port, dest_port, udp_packet)
 
-        raw_socket.send(payload)
+        raw_socket.sendto(ip_packet, (socket.inet_ntoa(dest_address_bin), dest_port))
         
 
 if __name__ == '__main__':
