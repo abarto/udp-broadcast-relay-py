@@ -19,10 +19,10 @@ Copyright (c) 2020 Agustin Barto <abarto@gmail.com>
 
 from __future__ import absolute_import, print_function
 
+import os
 import socket
 import struct
 import sys
-
 
 __author__ = 'Agustin Barto'
 __copyright__ = 'Copyright (C) 2019 Agustin Barto'
@@ -36,12 +36,13 @@ def main():
             sys.argv[0]), file=sys.stderr)
         sys.exit(-1)
 
-    _, args_port, args_dest, args_bind = sys.argv + (['255.255.255.255'] if len(sys.argv) < 4 else [])
+    _, args_port, args_dest, args_bind = sys.argv[:3] + (['255.255.255.255'] if len(sys.argv) < 4 else sys.argv[3:])
 
     dest_ip, dest_port = args_dest.split(':', 1)
+    debug = 'DEBUG' in os.environ
 
-    print('{}: args_port = {}, dest_ip = {}, dest_port = {}, bind = {}'.format(sys.argv[0], args_port, dest_ip,
-                                                                               dest_port, args_bind))
+    print('{}: args_port = {}, dest_ip = {}, dest_port = {}, bind = {}, debug = {}'.format(
+        sys.argv[0], args_port, dest_ip, dest_port, args_bind, debug))
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -50,11 +51,14 @@ def main():
     while True:
         data, (src_address, src_port) = server_socket.recvfrom(1024)
 
-        print('{}: recvfrom, data = {!r}, src_address = {}, src_port = {}'.format(sys.argv[0], data, src_address,
-                                                                                  src_port))
+        print('{}: recvfrom, data = {!r}, len(data) = {}, src_address = {}, src_port = {}'.format(
+            sys.argv[0], data, len(data), src_address, src_port))
 
         payload = struct.pack('!4sH4sH{}s'.format(len(data)), socket.inet_aton(src_address),
                                                   src_port, socket.inet_aton(args_bind), int(args_port), data)
+
+        if debug:
+            print('{}: payload: {!r}'.format(sys.argv[0], payload))
         
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         client_socket.sendto(payload, (dest_ip, int(dest_port)))

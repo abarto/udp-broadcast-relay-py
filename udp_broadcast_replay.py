@@ -23,6 +23,7 @@ from __future__ import absolute_import, print_function
 import array
 import fcntl
 import IN
+import os
 import socket
 import struct
 import sys
@@ -126,22 +127,33 @@ def _get_ip_address(interface):
 
 def main():
     if len(sys.argv) < 2:
-        print('Usage: {} <bind_ip>:<bind_port> <interface>'.format(sys.argv[0]), file=sys.stderr)
+        print('Usage: {} <bind_ip>:<bind_port> <interface> [<ip|eth>]'.format(sys.argv[0]), file=sys.stderr)
         sys.exit(-1)
 
-    _, args_bind, args_interface = sys.argv
+    _, args_bind, args_interface = sys.argv[:3]
+    extra_args = sys.argv[3:]
 
     bind_ip, bind_port = args_bind.split(':', 1)
+    
+    mode = 'eth' if 'eth' in extra_args else 'ip'
+    debug = 'DEBUG' in os.environ
 
-    print('{}: bind_ip = {}, bind_port = {}, interface = {}'.format(
-        sys.argv[0], bind_ip, bind_port, args_interface))
+    print('{}: bind_ip = {}, bind_port = {}, interface = {}, mode = {}, debug = {}'.format(
+        sys.argv[0], bind_ip, bind_port, args_interface, mode, debug))
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_socket.bind(socket.getaddrinfo(bind_ip, int(bind_port), 0)[0][-1])
 
-    raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-    raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    raw_socket.bind((args_interface, 0))
+    if mode == 'eth':
+        raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+        raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        raw_socket.bind((args_interface, 0))
+    else:
+        raw_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        raw_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        raw_socket.setsockopt(socket.SOL_SOCKET, IN.SO_BINDTODEVICE, args_interface)
+        #raw_socket.bind((_get_ip_address(args_interface), 0))
   
     while True:
         data, forward_address = server_socket.recvfrom(1024)
@@ -151,14 +163,33 @@ def main():
         src_address_bin, src_port, dest_address_bin, dest_port, forwarded_data = struct.unpack('!4sH4sH{}s'.format(
             len(data) - 12), data)
 
-        udp_packet = _udp(src_address_bin, dest_address_bin, src_port, dest_port, data)
-        ip_packet = _ip(src_address_bin, dest_address_bin, src_port, dest_port, udp_packet)
-        eth_frame = _eth(
-            b'\xff\xff\xff\xff\xff\xff',  # FF:FF:FF:FF:FF:FF
-            b'\x0a\x0b\x0c\x01\x02\x03',  # 0A:0B:0C:01:02:03
-            ip_packet)
+        if debug:
+            print('{}: src_address_bin: {!r} ({})'.format(sys.argv[0], src_address_bin, socket.inet_ntoa(src_address_bin)))
+            print('{}: src_port: {}'.format(sys.argv[0], src_port))
+            print('{}: dest_address_bin: {!r} ({})'.format(sys.argv[0], dest_address_bin, socket.inet_ntoa(dest_address_bin)))
+            print('{}: dest_port: {}'.format(sys.argv[0], dest_port))
+            print('{}: forwarded_data: {!r}'.format(sys.argv[0], forwarded_data))
+            print('{}: len(forwarded_data): {}'.format(sys.argv[0], len(forwarded_data)))
 
-        raw_socket.send(eth_frame)
+        udp_packet = _udp(src_address_bin, dest_address_bin, src_port, dest_port, forwarded_data)
+        ip_packet = _ip(src_address_bin, dest_address_bin, src_port, dest_port, udp_packet)
+
+        if debug:
+            print('{}: udp_packet:\n{!r}'.format(sys.argv[0], udp_packet))
+            print('{}: ip_packet:\n{!r}'.format(sys.argv[0], ip_packet))
+
+        if mode == 'eth':
+            eth_frame = _eth(
+                b'\xff\xff\xff\xff\xff\xff',  # FF:FF:FF:FF:FF:FF
+                b'\x0a\x0b\x0c\x01\x02\x03',  # 0A:0B:0C:01:02:03
+                ip_packet)
+
+            if debug:
+                print('{}: eth_frame:\n{!r}'.format(sys.argv[0], eth_frame))
+
+            raw_socket.send(eth_frame)
+        else:
+            raw_socket.sendto(ip_packet, (socket.inet_ntoa(dest_address_bin), dest_port))
         
 
 if __name__ == '__main__':
