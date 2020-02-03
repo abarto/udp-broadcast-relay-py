@@ -50,6 +50,19 @@ def _checksum(buf):
     return socket.ntohs((~s) & 0xFFFF)
 
 
+def _eth(dst, src, data):
+    """Builds an Ethernet frame with and IP packet as payload"""
+
+    packet = (
+        dst +        # dst
+        src +        # src
+        b'' +        # vlan
+        b'\x08\x00'  # type
+    ) + data
+
+    return packet
+
+
 def _ip(src_addr, dest_addr, src_port, dest_port, data):
     """Builds an IP packet with a UDP packet as payload"""
 
@@ -126,11 +139,9 @@ def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_socket.bind(socket.getaddrinfo(bind_ip, int(bind_port), 0)[0][-1])
 
-    raw_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-    raw_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+    raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
     raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    raw_socket.setsockopt(socket.SOL_SOCKET, IN.SO_BINDTODEVICE, args_interface)
-    #raw_socket.bind((_get_ip_address(args_interface), 0))
+    raw_socket.bind((args_interface, 0))
   
     while True:
         data, forward_address = server_socket.recvfrom(1024)
@@ -142,8 +153,12 @@ def main():
 
         udp_packet = _udp(src_address_bin, dest_address_bin, src_port, dest_port, data)
         ip_packet = _ip(src_address_bin, dest_address_bin, src_port, dest_port, udp_packet)
+        eth_frame = _eth(
+            b'\xff\xff\xff\xff\xff\xff',  # FF:FF:FF:FF:FF:FF
+            b'\x0a\x0b\x0c\x01\x02\x03',  # 0A:0B:0C:01:02:03
+            ip_packet)
 
-        raw_socket.sendto(ip_packet, (socket.inet_ntoa(dest_address_bin), dest_port))
+        raw_socket.send(eth_frame)
         
 
 if __name__ == '__main__':
