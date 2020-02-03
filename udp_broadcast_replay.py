@@ -15,13 +15,14 @@ Usage: udp_broadcast_replay.py <bind_ip>:<bind_port> <interface>
 * interface: The name of the interfce onto which the replayed packets are
   going to be written to.
 
-Copyright (c) 2019 Agustin Barto <abarto@gmail.com>
+Copyright (c) 2020 Agustin Barto <abarto@gmail.com>
 """
 
 from __future__ import absolute_import, print_function
 
 import array
 import fcntl
+import IN
 import socket
 import struct
 import sys
@@ -53,16 +54,16 @@ def _ip(src_addr, dest_addr, src_port, dest_port, data):
     """Builds an IP packet with a UDP packet as payload"""
 
     header = (
-        b'\x45' +                                  # v_hl
-        b'\x00' +                                  # tos
-        struct.pack('!H', 20 + len(udp_packet)) +  # len
-        b'\x00\x00' +                              # id
-        b'\x00\x00' +                              # off
-        b'\x40' +                                  # ttl
-        b'\x11' +                                  # p (UDP)
-        struct.pack('!H', 0) +                     # sum
-        src_addr +                                 # src
-        dest_addr                                  # dst
+        b'\x45' +                            # v_hl
+        b'\x00' +                            # tos
+        struct.pack('!H', 20 + len(data)) +  # len
+        b'\x00\x00' +                        # id
+        b'\x00\x00' +                        # off
+        b'\x40' +                            # ttl
+        b'\x11' +                            # p (UDP)
+        struct.pack('!H', 0) +               # sum
+        src_addr +                           # src
+        dest_addr                            # dst
     )
 
     sum_ = _checksum(header)
@@ -128,7 +129,8 @@ def main():
     raw_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
     raw_socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
     raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    raw_socket.bind((_get_ip_address(args_interface), 0))
+    raw_socket.setsockopt(socket.SOL_SOCKET, IN.SO_BINDTODEVICE, args_interface)
+    #raw_socket.bind((_get_ip_address(args_interface), 0))
   
     while True:
         data, forward_address = server_socket.recvfrom(1024)
